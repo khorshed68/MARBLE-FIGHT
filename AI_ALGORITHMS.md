@@ -5,7 +5,8 @@
 This document explains how the game and its AI work, in the order a project
 presentation would cover them. Every constant quoted here is taken from the code
 (`config.py`, `data/arenas.json`, `ai/*.py`). Section 21 contains **measured**
-results and says exactly how they were produced.
+results and says exactly how they were produced. Section 22 traces one real
+decision step by step for both algorithms.
 
 ---
 
@@ -601,3 +602,308 @@ History-Based Adaptive AI on.
   comparison stays fair; single matches should not be over-interpreted.
 * Alpha-Beta pruning skipped more branches than Minimax visited (56 575 pruned vs 40 430
   visited with fuzzy on).
+
+## 22. Worked example: step-by-step decision trace
+
+This section follows one real decision from the board position to the shot,
+for both algorithms. **Every number below was produced by running the code**
+(`ai/search_trace.py`, `ai/minimax.py`, `ai/mcts.py`, `ai/fuzzy_risk.py`,
+`ai/explain.py`) on the position. The same position and the same trees can be
+opened in the game: *Algorithm Lab → SEARCH TREE*, or press **T** during the
+first turn of an AI vs AI match on the Classic Kancha Court.
+
+### 22.1 The scenario
+
+*Classic Kancha Court* (radius R = 10, friction multiplier 1.4, no obstacles),
+3 marbles per player, turn 1 of 60, Player 1 (Minimax + Alpha-Beta, Normal) to
+move. Each player has 2 Precision, 2 Power and 2 Spin charges. Marble radius 0.45,
+Power Shot multiplier 1.35.
+
+| Marble | Owner | x | y | Distance to the rim |
+|---|---|---|---|---|
+| M0 | Player 1 | −2.113 | −4.532 | 5.000 |
+| M1 | Player 1 | 0.000 | −5.000 | 5.000 |
+| M2 | Player 1 | +2.113 | −4.532 | 5.000 |
+| M3 | Player 2 | +2.113 | +4.532 | 5.000 |
+| M4 | Player 2 | 0.000 | +5.000 | 5.000 |
+| M5 | Player 2 | −2.113 | +4.532 | 5.000 |
+
+```
+                 y = +10 (rim)
+              M5     M4     M3        Player 2
+                     ^
+                     |   M1's shot, 90°
+                     |
+              M0     M1     M2        Player 1
+                 y = -10 (rim)
+```
+
+The start is point-symmetric. The three marbles of each side face each other, so
+every Player 1 marble has an enemy marble on a straight line in front of it.
+
+### 22.2 Step 1: candidate shots
+
+`generate_candidate_actions` turns the continuous action space (any angle, any
+power, five ability modes) into a finite, priority-ordered list. For this
+position it produces **248 legal shots**:
+
+* `push#k`: aimed so that the target marble *k* is driven straight outward
+  (ghost-ball angle), at high and medium power, also with Power and Precision;
+* `hit#k`: aimed at the centre of marble *k*;
+* `curve#k`: Spin shots that bend toward marble *k*;
+* `dir0` to `dir15`: 16 uniform directions for repositioning;
+* `retreat`: a gentle shot toward the centre.
+
+The list is sorted by a geometric estimate (how far outward the target would be
+driven and how exposed it is). The Normal Minimax keeps the first **24** at the
+root (`root_width = 24`) and the first **10** at every reply (`inner_width = 10`).
+The first entries are:
+
+| Priority | Shot | Angle |
+|---|---|---|
+| 1 | M0 push M3, Power 100% | 65.0° |
+| 2 | M1 push M4, Power 100% | 90.0° |
+| 3 | M2 push M5, Power 100% | 115.0° |
+| 4 | M0 push M4, Normal 100% | 76.2° |
+| 5 | M0 push M4, Power 100% | 76.2° |
+| 6 | M1 push M3, Normal 100% | 78.8° |
+| … | … | … |
+| 16–24 | the same pushes with Precision | |
+
+The geometric priority is only an ordering. Every shot that the search keeps
+is confirmed with the real physics (`simulate_turn`).
+
+### 22.3 Step 2: what one shot does (physics)
+
+Simulating **M1 push M4, Power 100%** (angle 90°, effective power 1.0 × 1.35):
+
+* M1 hits M4 head-on. M4 leaves the arena at (0.000, +10.022): **eliminated**.
+* With restitution e = 0.90 between equal masses, M1 keeps only (1 − e)/2 = 5 % of its
+  speed. It stops almost at the contact point, at (0.000, +4.133), 5.87 from the rim.
+* All other marbles do not move.
+
+### 22.4 Step 3: fuzzy risk of the shot (Mamdani)
+
+The fuzzy evaluator rates the risk for the shooter's own marble. Its crisp
+inputs, measured from the simulation:
+
+| Input | Value | Membership degrees (non-zero) |
+|---|---|---|
+| edge (shooter's distance to the rim) | 5.0 | medium 0.80 |
+| power (effective) | 1.35 | high 1.00 |
+| align (cos of the angle to the outward radial) | −1.0 | inward 1.00 |
+| stop margin (where M1 stops, to the rim) | 5.87 | safe 1.00 |
+| threat (enemy can knock it out next) | 0.329 | low 0.48 |
+| friction | 1.4 | normal 0.20, grippy 0.20 |
+
+Rules that fire, with their strength (AND = min, OR = max, NOT = 1 − x):
+
+| Strength | Rule |
+|---|---|
+| 1.00 | IF stop is safe THEN risk is low |
+| 0.48 | IF threat is low AND stop is safe THEN risk is low |
+| 0.20 | IF friction is grippy AND stop is safe THEN risk is low |
+
+All the fired rules point to *low*. The rule "align is inward AND power is low
+or medium" does not fire, because the power is *high*. Clipping and aggregating
+the *low* output set (max of min) and taking the centroid gives
+**risk = 0.129**. The agents turn this into an edge cost of
+`fuzzy_weight × risk = 30 × 0.129 = 3.871`. The cost is subtracted when the
+root player shoots and added when the opponent shoots.
+
+### 22.5 Step 4: the evaluation function
+
+After M1 push M4 (Player 2 to move), from Player 1's point of view
+(`evaluate_features`):
+
+| Feature | Value | Why |
+|---|---|---|
+| material | +120.000 | 3 marbles vs 2 (120 per marble) |
+| edge danger | 0.000 | no marble within 4.0 of the rim |
+| attack lines | −2.909 | 10 × own lines − 26 × Player 2's lines (Player 2 moves next, so its lines weigh more) |
+| safety margin | +0.433 | own marbles are on average a little further from the rim |
+| abilities | −4.000 | Player 1 spent one Power charge |
+| **total** | **+113.524** | |
+
+The value of the shot after one ply is therefore 113.524 − 3.871 (risk edge) =
+**109.653**.
+
+### 22.6 Step 5: Minimax with iterative deepening
+
+The agent searches depth 1, then 2, then 3. Each iteration starts with the best
+shots of the previous one. Measured results of the real Normal agent:
+
+| Depth | Chosen shot | Value | Nodes | Leaves evaluated | Cutoffs | Branches pruned | Physics simulations |
+|---|---|---|---|---|---|---|---|
+| 1 | M0 push M3, Power | 109.65 | 25 | 24 | 0 | 0 | 24 |
+| 2 | M1 push M4, Power | 1.67 | 100 | 74 | 22 | 190 | 74 |
+| 3 | **M1 push M4, Power** | **111.81** | 417 | 333 | 54 | 468 | 523 |
+
+The node, cutoff and simulation counts at depth 3 are the totals of all three
+iterations, as the game's panel reports them. The final decision took 0.36 s.
+
+What each depth sees:
+
+* **Depth 1:** the three straight pushes (M0→M3, M1→M4, M2→M5) all knock out an enemy
+  marble and score exactly 109.65. The tie goes to the first one in the search
+  order, M0 push M3.
+* **Depth 2:** Player 2 replies by knocking out a Player 1 marble, so the material
+  is equal again and the values fall to about +1.67. M1 push M4 is ahead by only
+  **0.007** (1.674 vs 1.667).
+* **Depth 3:** Player 1 gets the next shot and can knock out again. M1 push M4 scores
+  **111.81**, M2 push M5 and M0 push M3 score 111.57, M1 push M5 scores 110.59.
+  Minimax plays the highest: **M1 push M4, Power 100%**.
+
+### 22.7 Step 6: the Alpha-Beta trace, node by node
+
+A full depth-3 tree has 24 + 24 × 10 + 24 × 10 × 10 = 2,664 positions. To follow it
+by hand, the trace below uses the same code with a narrow beam: depth 2, **4 root
+shots × 3 replies**. This is exactly the tree that **SHOW TREE** draws for this
+position.
+
+* *value* = the value returned by the child node.
+* *backed* = risk edge + value, which is what the parent compares.
+* Windows are in each node's own frame, shifted by the edge.
+
+```
+ROOT (MAX, P1)  window (-inf, +inf)
+│
+├─ n1  P1: M0 push M3 | Power    (MIN, P2)   window (-inf, +inf)   edge -3.871
+│    ├─ n2  P2: M4 push M1 | Power    leaf eval +1.674  edge +3.871  backed +5.545   beta = 5.545
+│    ├─ n3  P2: M5 push M2 | Power    leaf eval +1.667  edge +3.871  backed +5.537   beta = 5.537
+│    └─ n4  P2: M4 push M2 | Normal   leaf eval +114.071 edge +3.871 backed +117.942 (worse for P2)
+│    MIN value +5.537  →  backed +5.537 - 3.871 = +1.667            ROOT alpha = 1.667
+│
+├─ n5  P1: M1 push M4 | Power    (MIN)   window (+5.537, +inf)   (alpha 1.667 shifted by 3.871)
+│    ├─ n6  P2: M3 push M0 | Power    backed +5.545   beta = 5.545
+│    ├─ n7  P2: M5 push M2 | Power    backed +5.545   (no improvement)
+│    └─ n8  P2: M3 push M2 | Normal   backed +117.675
+│    MIN value +5.545  →  backed +1.674 > 1.667                     ROOT alpha = 1.674 (new best)
+│
+├─ n9  P1: M2 push M5 | Power    (MIN)   window (+5.545, +inf)
+│    ├─ n10 P2: M3 push M0 | Power    backed +5.537  ≤ alpha 5.545  →  CUTOFF
+│    ├─ n11 PRUNED (M4 push M1 | Power)   never simulated
+│    └─ n12 PRUNED (M3 push M1 | Normal)  never simulated
+│    returns an upper bound: value ≤ +5.537, backed ≤ +1.667
+│
+└─ n13 P1: M0 push M4 | Normal   (MIN)   window (+5.545, +inf)
+     ├─ n14 P2: M5 push M2 | Power    backed -102.301  ≤ alpha  →  CUTOFF
+     ├─ n15 PRUNED   └─ n16 PRUNED
+     returns an upper bound: value ≤ -102.301, backed ≤ -106.171
+
+ROOT value +1.674, chosen shot: M1 push M4 | Power 100%
+Principal variation: M1 push M4 (P1)  →  M5 push M2 (P2)
+```
+
+Why the two cutoffs are safe:
+
+* **At n9:** after its first reply, n10, Player 2 can already hold Player 1 to at
+  most 1.667. Player 1 already has 1.674 from n5, so M2 push M5 can never become
+  the best root shot. Looking at more replies could only lower its value further.
+* **At n13:** M0 push M4 loses a marble for nothing (backed −106.17), so it is cut
+  after its first reply.
+
+Measured on this tree: Alpha-Beta visited **13 nodes** (8 leaves, 2 cutoffs,
+4 branches pruned). Plain Minimax on the same tree visited **17 nodes** and
+returned the **identical value 1.67392591609822**. Pruning changes the work,
+never the answer. This is also checked by the tests.
+
+At depth 2 the root children are interior nodes, so they are simulated first and
+ordered by their one-ply value (edge + evaluation). The three straight pushes tie
+at 109.653, so they keep the generator order. That is why n1 is M0 push M3 and
+not the eventual winner.
+
+Leaf n7 shows the principal line. After P1 M1 push M4 and P2 M5 push M2, the
+material is equal (0). The attack feature is +1.674. The risk edges cancel
+(−3.871 for P1's shot, +3.871 for P2's), so the leaf scores +1.674.
+
+### 22.8 Step 7: the explanation shown in the match
+
+`ai/explain.py` re-simulates the chosen shot, compares the board before and after,
+and uses the agent's own statistics. For this decision the AI panel shows:
+
+* **P1 Minimax chose: M1 push M4 | Power 100%**
+* *Compared 24 shots, 3 turn(s) ahead, 468 branches pruned*
+* \+ Knocks out enemy marble M4
+* \+ Low fuzzy risk for its own marbles (0.13)
+* − Next best: M2 push M5 | Power 100%, value 111.6 vs 111.8 after the reply
+
+### 22.9 Step 8: MCTS on the same position, iteration by iteration
+
+For a readable trace the MCTS agent's own `select`, `expand`, `rollout` and
+`backpropagate` are run one iteration at a time (`MCTSStepper`: 40 iterations,
+4 candidate shots, rollout depth 1, seed 7). This is the tree that the Lab and
+SHOW TREE draw.
+
+* The exploration constant is c = 1/√2 ≈ 0.7071.
+* The selection formula is UCT = Q + c·√(ln N_parent / N_child).
+* Progressive widening allows ⌈2·√N⌉ children for a node with N visits.
+* A rollout plays one quick turn with a light policy, then scores the position
+  with reward = 1 / (1 + e^(−value/160)).
+* Rewards are stored from the viewpoint of the player who made the shot.
+
+| Iteration | Root N before / children allowed | Selection path | Expanded | Reward (P1) | Root children after it: N / Q / UCT |
+|---|---|---|---|---|---|
+| 1 | 0 / 2 | root | M0 push M3 | 0.503 | M0→M3 1 / 0.503 / 0.503 |
+| 2 | 1 / 2 | root | M1 push M4 | 0.676 | M0→M3 1 / 0.503 / 1.091; M1→M4 1 / 0.676 / 1.265 |
+| 3 | 2 / 3 | root | M2 push M5 | 0.677 | M1→M4 UCT 1.417; M2→M5 UCT 1.418 |
+| 4 | 3 / 4 | root | M0 push M4 (Normal) | 0.516 | all 4 root shots now have N = 1 |
+| 5 | 4 / 4 (all expanded) | root → **M2 push M5** (highest UCT, 1.509) | reply M3 push M0 | 0.668 | M2→M5 2 / 0.672 / 1.306 |
+| 10 | 9 / 6 | root → M1 push M4 | reply M5 push M2 | 0.493 | M1→M4 3 / 0.557; M2→M5 3 / 0.613 |
+| 20 | 19 / 9 | root → M1 push M4 | reply M3 push M2 | 0.505 | M0→M3 5, M1→M4 5, M2→M5 6, M0→M4 4 visits |
+| 40 | 39 / 13 | root → M0 push M4 → M5 push M1 | P1 M0 push M4 (Power) | 0.653 | see below |
+
+Only 4 candidate shots exist at the root in this small tree, so after iteration 4
+the root is fully expanded and every later iteration selects by UCT.
+
+UCT check for iteration 2: M0 push M3 has Q = 0.503 and N = 1, with a parent N of 2.
+UCT = 0.503 + 0.7071 · √(ln 2 / 1) = 0.503 + 0.589 = **1.091**, as measured.
+
+After 40 iterations:
+
+| Root shot | Visits N | Mean reward Q | UCT |
+|---|---|---|---|
+| **M1 push M4, Power** | **12** | **0.561** | 0.953 |
+| M0 push M3, Power | 10 | 0.505 | 0.935 |
+| M2 push M5, Power | 9 | 0.512 | 0.964 |
+| M0 push M4, Normal | 9 | 0.504 | 0.957 |
+
+MCTS plays the **most visited** root child, which is M1 push M4, Power 100%. This
+small MCTS tree agrees with Minimax.
+
+### 22.10 Step 9: the full Normal MCTS agent
+
+The real Normal MCTS agent, placed as Player 1 on the same position, runs with its
+full budget and seed. Its configuration is 160 iterations, rollout depth 2,
+candidate width 48, and decision seed 11000033 (from match seed 11, turn 0,
+player 0). Measured:
+
+* 160 iterations, 944 physics simulations, 26 root children, maximum tree depth 3,
+  0.62 s;
+* chosen shot **M2 push M4, Power 100%**: 10 visits, mean reward 0.642, fuzzy risk 0.172.
+  It also knocks out M4, with a diagonal hit; M2 stops at (−0.65, +4.27);
+* the runners-up were M1 push M4 (9 visits, 0.631), M0 push M3 (9, 0.591) and
+  M1 push M5 (8, 0.584).
+
+### 22.11 Comparison and conclusions
+
+| | Minimax + Alpha-Beta (Normal) | MCTS (Normal) |
+|---|---|---|
+| Shot | M1 push M4, Power 100% | M2 push M4, Power 100% |
+| Outcome of the shot | knocks out M4 | knocks out M4 |
+| Basis of the choice | highest value 111.81 after 3 plies | most visits, 10 of 160 |
+| Margin over the next shot | 0.24 (111.81 vs 111.57) | 1 visit (10 vs 9) |
+| Work | 417 nodes, 523 simulations, 0.36 s | 160 iterations, 944 simulations, 0.62 s |
+
+* Both algorithms find a knockout on the first turn. They differ only in which
+  marble shoots, and both margins are small.
+* Minimax is exact within its beam and depth: the same position always gives the
+  same tree, the same pruning and the same shot.
+* MCTS estimates values by sampling. Its choice depends on the seed and the number
+  of iterations (with 40 iterations and 4 candidates it chose M1 push M4). It needs
+  no hand-tuned depth or beam, and it sees more distinct root shots (26 vs 24).
+* Alpha-Beta saved work without changing the result: 13 instead of 17 nodes on the
+  small tree, and 468 pruned branches at Normal depth 3.
+* The fuzzy layer did not change the ranking here, because every straight knockout
+  has the same low risk (0.129). It matters in positions where a shot leaves the
+  shooter near the rim (*stop is unsafe* fires and the risk rises to *very high*).
