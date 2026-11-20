@@ -1,0 +1,211 @@
+{
+  "tournament_id": "T20261023-203021",
+  "config": {
+    "matches": 4,
+    "pairings": [
+      [
+        "minimax",
+        "mcts"
+      ]
+    ],
+    "arenas": [
+      "classic",
+      "neon",
+      "magnetic"
+    ],
+    "difficulty": "easy",
+    "rotate_start": true,
+    "base_seed": 42,
+    "marbles": 3,
+    "turn_limit": null,
+    "use_fuzzy": true,
+    "use_opponent_model": true,
+    "workers": 0,
+    "overrides": {},
+    "log_history": true,
+    "save_replays": true
+  },
+  "wall_time_s": 1.25,
+  "completed": 4,
+  "scheduled": 4,
+  "aggregate": {
+    "total_matches": 4,
+    "algorithms": {
+      "minimax": {
+        "matches": 4,
+        "wins": 2,
+        "losses": 2,
+        "draws": 0,
+        "win_rate": 0.5,
+        "decisions": 18,
+        "avg_decision_time": 0.03773888888888889,
+        "max_decision_time": 0.0858,
+        "total_nodes": 889,
+        "total_leaves": 664,
+        "total_prunes": 699,
+        "total_cutoffs": 163,
+        "avg_depth": 1.8888888888888888,
+        "max_depth": 2,
+        "total_iterations": null,
+        "total_simulations": 663,
+        "avg_rollout_depth": null,
+        "avg_selected_visits": null,
+        "max_tree_depth": null,
+        "avg_value": 1068.3316666666667,
+        "avg_fuzzy_risk": 0.2550555555555556,
+        "fallbacks": 0
+      },
+      "mcts": {
+        "matches": 4,
+        "wins": 2,
+        "losses": 2,
+        "draws": 0,
+        "win_rate": 0.5,
+        "decisions": 18,
+        "avg_decision_time": 0.12216666666666666,
+        "max_decision_time": 0.2593,
+        "total_nodes": null,
+        "total_leaves": null,
+        "total_prunes": null,
+        "total_cutoffs": null,
+        "avg_depth": null,
+        "max_depth": null,
+        "total_iterations": 720,
+        "total_simulations": 2319,
+        "avg_rollout_depth": 0.9263888888888889,
+        "avg_selected_visits": 5.0,
+        "max_tree_depth": 3,
+        "avg_value": 0.6882222222222222,
+        "avg_fuzzy_risk": 0.2251111111111111,
+        "fallbacks": 0
+      }
+    },
+    "arenas": {
+      "classic": {
+        "matches": 2,
+        "avg_turns": 8.5,
+        "results": {
+          "mcts": 2
+        }
+      },
+      "neon": {
+        "matches": 1,
+        "avg_turns": 12.0,
+        "results": {
+          "minimax": 1
+        }
+      },
+      "magnetic": {
+        "matches": 1,
+        "avg_turns": 7.0,
+        "results": {
+          "minimax": 1
+        }
+      }
+    },
+    "pairings": [
+      {
+        "pairing": "mcts vs minimax",
+        "arena": "classic",
+        "matches": 2,
+        "avg_turns": 8.5,
+        "wins": {
+          "mcts": 2
+        },
+        "draws": 0
+      },
+      {
+        "pairing": "mcts vs minimax",
+        "arena": "magnetic",
+        "matches": 1,
+        "avg_turns": 7.0,
+        "wins": {
+          "minimax": 1
+        },
+        "draws": 0
+      },
+      {
+        "pairing": "mcts vs minimax",
+        "arena": "neon",
+        "matches": 1,
+        "avg_turns": 12.0,
+        "wins": {
+          "minimax": 1
+        },
+        "draws": 0
+      }
+    ]
+  },
+  "head_to_head": {
+    "minimax": 2,
+    "mcts": 2,
+    "draw": 0,
+    "matches": 4
+  },
+  "matches": [
+    {
+      "index": 0,
+      "arena": "classic",
+      "p1": "minimax",
+      "p2": "mcts",
+      "seed": 42,
+      "winner": 1,
+      "winner_label": "Player 2 (MCTS (UCT))",
+      "score": [
+        0,
+        3
+      ],
+      "turns": 8,
+      "duration_s": 0.6,
+      "end_reason": "All Player 1 marbles eliminated"
+    },
+    {
+      "index": 1,
+      "arena": "neon",
+      "p1": "mcts",
+      "p2": "minimax",
+      "seed": 43,
+      "winner": 1,
+      "winner_label": "Player 2 (Minimax + Alpha-Beta)",
+      "score": [
+        0,
+        1
+      ],
+      "turns": 12,
+      "duration_s": 0.98,
+      "end_reason": "All Player 1 marbles eliminated"
+    },
+    {
+      "index": 2,
+      "arena": "magnetic",
+      "p1": "minimax",
+      "p2": "mcts",
+      "seed": 44,
+      "winner": 0,
+      "winner_label": "Player 1 (Minimax + Alpha-Beta)",
+      "score": [
+        1,
+        0
+      ],
+      "turns": 7,
+      "duration_s": 0.63,
+      "end_reason": "All Player 2 marbles eliminated"
+    },
+    {
+      "index": 3,
+      "arena": "classic",
+      "p1": "mcts",
+      "p2": "minimax",
+      "seed": 45,
+      "winner": 0,
+      "winner_label": "Player 1 (MCTS (UCT))",
+      "score": [
+        2,
+        0
+      ],
+      "turns": 9,
+      "duration_s": 0.7,
+      "end_reason": "All Player 2 marbles eliminated"
+    }
+  ]
+}
