@@ -11,6 +11,8 @@ their shots by simulating the real physics. A **fuzzy-logic risk evaluator** and
 **History-Based Adaptive AI** opponent model support both.
 
 For the full academic explanation see **[AI_ALGORITHMS.md](AI_ALGORITHMS.md)**.
+Its Section 22 is a worked example: one real turn traced step by step for both algorithms
+(candidates, physics, fuzzy risk, evaluation, the Alpha-Beta tree node by node, MCTS iterations).
 
 ---
 
