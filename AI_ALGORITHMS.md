@@ -492,7 +492,7 @@ file only; with no data it shows an empty state. Metrics never measured for an a
 `None` and displayed as `n/a`, never as 0. Results are also broken down by algorithm
 pairing × arena (mirror matches by seat).
 
-## 18. Test strategy (`tests/`, 204 tests, `python -m pytest -q`)
+## 18. Test strategy (`tests/`, 207 tests, `python -m pytest -q`)
 
 * `test_physics.py` — friction, momentum and restitution, energy, glancing hits,
   tunnelling, dead marbles, elimination, bumpers, rotating bumpers, surfaces,
@@ -610,7 +610,11 @@ for both algorithms. **Every number below was produced by running the code**
 (`ai/search_trace.py`, `ai/minimax.py`, `ai/mcts.py`, `ai/fuzzy_risk.py`,
 `ai/explain.py`) on the position. The same position and the same trees can be
 opened in the game: *Algorithm Lab → SEARCH TREE*, or press **T** during the
-first turn of an AI vs AI match on the Classic Kancha Court.
+first turn of an AI vs AI match on the Classic Kancha Court. Its **SHOW HEURISTIC** button
+displays the calculations of 22.4, 22.5 and 22.7 (evaluation terms, fuzzy rules, and the
+breakdown of the tree value) for that position. They come from
+`ai/evaluation.py: evaluation_terms` and `ai/explain.py: heuristic_report`, and the tests
+check that they reproduce the agents' values.
 
 ### 22.1 The scenario
 

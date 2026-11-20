@@ -53,7 +53,7 @@ Its Section 22 is a worked example: one real turn traced step by step for both a
 * **Why this shot?** During every match the AI panel explains each AI decision in plain
   words, ranks the compared shots (#1 CHOSEN, #2, ... tagged on the board) and **SHOW TREE**
   draws the decision tree of that moment.
-* 204 automated tests (`pytest`), including offscreen end-to-end tests of every game mode.
+* 207 automated tests (`pytest`), including offscreen end-to-end tests of every game mode.
 
 ## Game rules
 
@@ -194,8 +194,25 @@ the risk, values and visits are the ones the search reported (`ai/explain.py`).
 **SHOW TREE** (or **T**) pauses the match and draws the decision tree for exactly that
 position (Minimax with its cutoffs, or MCTS with step buttons), next to the shot the
 match AI played and its reasons. The tree uses the Lab's small display budget, so the
-popup says whether its choice is the same as the shot that was played. **T**, **P** or
-**Esc** closes it and the match continues.
+popup says whether its choice is the same as the shot that was played. A top-view map
+shows where the marbles are at that moment. **T**, **P** or **Esc** closes it and the
+match continues.
+
+**SHOW HEURISTIC** (in the popup and in *Algorithm Lab → SEARCH TREE*) shows the
+calculation behind the shot:
+
+1. the evaluation after the shot, term by term with its formula (material, edge danger,
+   attack lines, safety margin, abilities), the fuzzy risk edge, the one-ply value and
+   the MCTS reward of that value;
+2. the fuzzy risk calculation: the six inputs and their membership degrees, every rule
+   that fired with its strength, and the centroid result;
+3. how the search uses it: for Minimax, the evaluation at the end of the best line plus
+   the risk edges, which adds up to the value at the root of the tree; for MCTS, the UCT
+   formula worked out for the current choice.
+
+All numbers come from the same functions the agents use
+(`ai/evaluation.py: evaluation_terms`, `ai/explain.py: heuristic_report`), and the tests
+check that they add up to the agents' own values.
 
 ## Replays
 
