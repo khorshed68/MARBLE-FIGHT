@@ -93,17 +93,25 @@ class GameScreen:
         self.series: Series | None = Series(int(rounds), first_player) if mode != "replay" and int(rounds) > 1 else None
         self.view = ArenaView(app, self.match.arena, self.match.cfg, quality=st.get("graphics_quality", "high"),
                               effects=st.get("effects", "full"))
-        self.view.set_state(self.match.state)
         self.show_analysis = bool(st.get("show_analysis", True))
+        self.view.show_tags = self.show_analysis          # M0, M1 ... tags above the marbles
+        self.view.set_state(self.match.state)
         self.show_traj = bool(st.get("show_trajectories", True))
         auto = mode in ("ai_vs_ai", "replay")
         self.speed = float(st.get("ai_playback_speed" if auto else "anim_speed", 1.0))
         self.has_ai = any(not sp.is_human for sp in self.match.specs)
         # the AI-analysis panel only makes sense when at least one seat is an AI
-        self.hud = HUD(app, self.match, self.show_analysis and self.has_ai)
+        self.tree_popup = None
+        self.last_ai = None              # (state, decision) of the most recent AI decision, for SHOW TREE
+        self.last_expl = None            # its plain-language explanation (WHY THIS SHOT)
+        self.hud = HUD(app, self.match, self.show_analysis and self.has_ai,
+                       on_tree=self.toggle_tree if self.has_ai else None)
         self.last_decisions = [None, None]
+        self.last_ai = None
+        self.last_expl = None
         for p in (0, 1):
             self.hud.set_analysis(p, None)
+        self.hud.set_explanation(None)
         app.cam_rig.auto_orbit = 0.0
         app.cam_rig.aspect_listeners.append(self._on_aspect)
         humans = [p for p in (0, 1) if self.match.specs[p].is_human]
@@ -154,10 +162,12 @@ class GameScreen:
     def _on_aspect(self) -> None:
         """Window resized: rebuild the HUD for the new shape (the camera re-frames itself)."""
         old = self.hud
-        self.hud = HUD(self.app, self.match, self.show_analysis and self.has_ai)
+        self.hud = HUD(self.app, self.match, self.show_analysis and self.has_ai,
+                       on_tree=self.toggle_tree if self.has_ai else None)
         old.destroy()
         for p in (0, 1):
             self.hud.set_analysis(p, self.last_decisions[p])
+        self.hud.set_explanation(self.last_expl)
         self._refresh_hud()
 
     @property
@@ -239,6 +249,7 @@ class GameScreen:
         ac("r", self.on_restart)
         ac("m", self.on_toggle_mute)
         ac("c", self.app.cam_rig.reset_view)
+        ac("t", self.toggle_tree)
         for k in ("a", "d", "w", "s", "arrow_left", "arrow_right", "arrow_up", "arrow_down", "q", "e"):
             ac(k, self.keys.add, [k])
             ac(k + "-up", self.keys.discard, [k])
@@ -247,7 +258,7 @@ class GameScreen:
 
     def _unbind(self) -> None:
         for ev in ("mouse1", "mouse1-up", "mouse3", "mouse3-up", "wheel_up", "wheel_down", "escape", "space", "tab",
-                   "h", "p", "r", "m", "c", "1", "2", "3", "4", "5"):
+                   "h", "p", "r", "m", "c", "t", "1", "2", "3", "4", "5"):
             self.app.ignore(ev)
         for k in ("a", "d", "w", "s", "arrow_left", "arrow_right", "arrow_up", "arrow_down", "q", "e"):
             self.app.ignore(k)
@@ -260,6 +271,9 @@ class GameScreen:
         self.hud.show_banner("SOUND MUTED" if self.app.settings["muted"] else "SOUND ON", T.MUTED, 0.8)
 
     def on_start_pause(self) -> None:
+        if self.tree_popup is not None:
+            self.toggle_tree()
+            return
         if self.pause_menu is not None:
             # the pause menu owns the paused state: P closes it (same as RESUME / Esc)
             self.toggle_pause_menu()
@@ -276,7 +290,7 @@ class GameScreen:
         self._label_controls()
 
     def on_step(self) -> None:
-        if self.match.is_over or self.replay_error or self.pause_menu is not None:
+        if self.match.is_over or self.replay_error or self.pause_menu is not None or self.tree_popup is not None:
             return
         if self.phase == "waiting_start":
             self.phase = "turn_start"
@@ -294,6 +308,7 @@ class GameScreen:
     def on_toggle_analysis(self) -> None:
         self.show_analysis = not self.show_analysis
         self.hud.set_analysis_visible(self.show_analysis and self.has_ai)
+        self.view.set_tags_visible(self.show_analysis)
         if not self.show_analysis and self.phase != "human":
             self.view.clear_paths()
         self._label_controls()
@@ -344,8 +359,11 @@ class GameScreen:
         self.replay_index = 0
         self.replay_error = None
         self.last_decisions = [None, None]
+        self.last_ai = None
+        self.last_expl = None
         for p in (0, 1):
             self.hud.set_analysis(p, None)
+        self.hud.set_explanation(None)
 
     def on_menu(self) -> None:
         self.app.goto("menu")
@@ -356,6 +374,9 @@ class GameScreen:
             self.app.goto("game", mode="replay", replay=rec)
 
     def toggle_pause_menu(self) -> None:
+        if self.tree_popup is not None:
+            self.toggle_tree()
+            return
         if self.results is not None:
             return
         if self.pause_menu is not None:
@@ -374,7 +395,33 @@ class GameScreen:
             self.pause_menu = fr
         self._label_controls()
 
+    # ------------------------------------------------------------------ SHOW TREE
+    def toggle_tree(self) -> None:
+        """Open / close the decision tree of the most recent AI decision (pauses the match)."""
+        if self.tree_popup is not None:
+            self.tree_popup.destroy()
+            self.tree_popup = None
+            self.paused = self._paused_before_tree
+            self._label_controls()
+            return
+        if self.results is not None or self.pause_menu is not None:
+            return
+        if self.last_ai is None:
+            self.hud.show_banner("No AI decision yet", T.WARN, 1.0)
+            return
+        from ui.tree_view import TreePopup
+        state, dec = self.last_ai
+        self._paused_before_tree = self.paused
+        self.paused = True
+        self.app.audio.set_rolling(0.0)
+        spec = self.match.specs[dec.player]
+        self.tree_popup = TreePopup(self.app, state, dec, spec.use_fuzzy, self.toggle_tree)
+        self._label_controls()
+
     def _close_overlays(self) -> None:
+        if self.tree_popup is not None:
+            self.tree_popup.destroy()
+            self.tree_popup = None
         if self.pause_menu is not None:
             self.pause_menu.destroy()
             self.pause_menu = None
@@ -527,25 +574,43 @@ class GameScreen:
         if dec is not None:
             self.last_decisions[p] = dec
             self.hud.set_analysis(p, dec)
+            if not self.match.specs[p].is_human:
+                self.last_ai = (self.match.state, dec)
+                try:
+                    from ai.explain import explain
+                    self.last_expl = explain(self.match.state, dec, self.match.arena, self.match.cfg)
+                except Exception:          # an explanation must never stop the match
+                    self.last_expl = None
+                self.hud.set_explanation(self.last_expl)
         m = self.match.state.marbles[a.marble_id]
         col = T.PLAYER_COLORS[p]
         self.view.set_selected(a.marble_id, col)
         self.view.show_aim(m.x, m.y, a.angle, min(1.0, a.power), col)
         reveal = 0.45
         if self.show_analysis and self.show_traj:
-            paths = []
-            for c in (dec.candidates if dec is not None else []):
+            paths, labels = [], []
+            chosen_rank = None
+            for rank, c in enumerate(dec.candidates if dec is not None else [], start=1):
                 ca = Action.from_dict(c["action"])
                 if ca == a:
+                    chosen_rank = rank
                     continue
                 risky = (c.get("risk") or 0) >= 0.6
                 style, rgba = ("dashed", (1.0, 0.3, 0.3, 0.75)) if risky else ("thin", (0.85, 0.9, 1.0, 0.45))
                 if is_legal(self.match.state, ca, self.match.cfg.rules):
-                    paths += preview_paths(self.match.state, ca, self.match.arena, self.match.cfg, rgba, style,
-                                           False, 2.0)[0]
-            paths += preview_paths(self.match.state, a, self.match.arena, self.match.cfg,
-                                   (col[0], col[1], col[2], 0.95), "solid", True, 2.5)[0]
-            self.view.show_paths(paths)
+                    cp = preview_paths(self.match.state, ca, self.match.arena, self.match.cfg, rgba, style,
+                                       False, 2.0)[0]
+                    paths += cp
+                    if cp and cp[0][0]:
+                        x, y = cp[0][0][-1]
+                        labels.append((x, y, f"#{rank}", (1.0, 0.45, 0.45, 1) if risky else (0.9, 0.93, 1.0, 1)))
+            mine = preview_paths(self.match.state, a, self.match.arena, self.match.cfg,
+                                 (col[0], col[1], col[2], 0.95), "solid", True, 2.5)[0]
+            paths += mine
+            if dec is not None and mine and mine[0][0]:
+                x, y = mine[0][0][-1]
+                labels.insert(0, (x, y, f"#{chosen_rank} CHOSEN" if chosen_rank else "CHOSEN", (1.0, 0.85, 0.35, 1)))
+            self.view.show_paths(paths, labels)
             reveal = 1.1
         self.reveal_t = reveal
         self.phase = "reveal"

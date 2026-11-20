@@ -48,7 +48,10 @@ For the full academic explanation see **[AI_ALGORITHMS.md](AI_ALGORITHMS.md)**.
   alpha/beta window of every node, the cutoffs and the shots that were pruned; and the real
   MCTS tree, built one iteration at a time (selection, expansion, rollout, backpropagation).
 * Search trees for **your own matches**: pick one of the last 5 saved matches and any turn.
-* 199 automated tests (`pytest`), including offscreen end-to-end tests of every game mode.
+* **Why this shot?** During every match the AI panel explains each AI decision in plain
+  words, ranks the compared shots (#1 CHOSEN, #2, ... tagged on the board) and **SHOW TREE**
+  draws the decision tree of that moment.
+* 204 automated tests (`pytest`), including offscreen end-to-end tests of every game mode.
 
 ## Game rules
 
@@ -85,9 +88,11 @@ Marble Fight/
 ├── data/arenas.json        arena layouts (zones, bumpers, magnets, colours)
 ├── game/                   state, actions, rules, physics, simulation, arena, match controller, series, replay
 ├── ai/                     base_agent, minimax, mcts, evaluation, fuzzy_risk, opponent_model, worker, factory,
-│                           search_trace (records the Alpha-Beta tree / steps MCTS for the Lab)
+│                           search_trace (records the Alpha-Beta tree / steps MCTS for the Lab),
+│                           explain (plain-language reasons for a decision)
 ├── ui/                     app, main_menu, game_screen, arena_view, hud, results_screen,
-│                           algorithm_lab, tournament_screen, settings, camera, geometry, audio, playback, widgets
+│                           algorithm_lab, tree_view (search-tree drawing + SHOW TREE popup),
+│                           tournament_screen, settings, camera, geometry, audio, playback, widgets
 ├── analytics/              metrics, tournament (also a CLI), match_logger
 ├── tools/                  benchmark.py, screenshots.py (offscreen self-check), make_audio.py (original audio)
 ├── tests/                  physics, rules, minimax, mcts, fuzzy_risk, integration, ai_safety, replay, audio, ui_modes
@@ -134,6 +139,7 @@ Options: `python main.py --windowed 1280x720`, `python main.py --fullscreen`,
 | Shoot | release the drag or **Space** |
 | Camera | right-drag orbit, mouse wheel zoom, **Q / E** and arrow keys, **C** re-centre |
 | Explanations overlay | **H** |
+| Decision tree of the last AI shot (pauses) | **T** or **SHOW TREE** in the AI panel |
 | Pause | **P**, or **Esc** for the pause menu (resume / restart / menu) |
 | Restart match | **R** |
 | Mute / unmute audio | **M** |
@@ -165,8 +171,29 @@ arena, marbles, fuzzy risk on/off, adaptive AI on/off and the seed → **ENTER A
 → **START MATCH**. The agents then play on their own. Controls on the right:
 **PAUSE/RESUME**, **STEP ONE TURN**, **SPEED** (0.5x–4x), **EXPLANATIONS ON/OFF**,
 **RESTART**, **MAIN MENU**. Before each shot the overlay shows the chosen trajectory
-(solid), alternatives (thin) and high-risk candidates (red dashed). Shortcut:
-`python main.py --ai-vs-ai`.
+(solid), alternatives (thin) and high-risk candidates (red dashed), each tagged with
+its rank (**#1 CHOSEN**, #2, #3 ...). Shortcut: `python main.py --ai-vs-ai`.
+
+**Why did the AI choose this shot?** The AI ANALYSIS panel shows, for the latest AI
+decision, a **WHY THIS SHOT** list and the ranked **CANDIDATES**:
+
+* green `+` reasons, red `-` costs, yellow `~` notes, for example *Knocks out enemy
+  marble M3*, *Pushes enemy M2 toward the edge (3.0 -> 2.5 from the rim)*, *Leaves own M0
+  only 1.2 from the edge*, *Low fuzzy risk (0.13)*, *Next best: ... value 27.4 vs 35.8
+  after the reply*, *Search proved a forced win*;
+* the size of the search (shots compared, turns ahead, branches pruned; or MCTS
+  iterations and visits);
+* the candidates with their Minimax value or MCTS visits / mean reward; the numbers match
+  the tags on the board.
+
+Every reason is measured: the chosen shot is re-run through the same physics and the
+position before and after is compared (marbles, distance to the rim, attack lines), and
+the risk, values and visits are the ones the search reported (`ai/explain.py`).
+**SHOW TREE** (or **T**) pauses the match and draws the decision tree for exactly that
+position (Minimax with its cutoffs, or MCTS with step buttons), next to the shot the
+match AI played and its reasons. The tree uses the Lab's small display budget, so the
+popup says whether its choice is the same as the shot that was played. **T**, **P** or
+**Esc** closes it and the match continues.
 
 ## Replays
 

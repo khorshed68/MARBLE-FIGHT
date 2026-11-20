@@ -354,3 +354,34 @@ def test_algorithm_lab_tree_for_a_recorded_match(app, tmp_path):
     lab._tree_set("scene", "trap")                         # back to a demo resets the turn
     assert lab.tree_opts["turn"] == 0 and lab._match() is None
     app.goto("menu")
+
+
+def test_ai_decisions_show_why_tags_and_tree_popup(app):
+    app.settings.update(show_analysis=True, show_trajectories=True)
+    app.goto("game", mode="ai_vs_ai", specs=(spec("minimax"), spec("mcts")), arena_id="classic", marbles=3, seed=9)
+    gs = app.screen
+    gs.toggle_tree()                                      # nothing decided yet: no popup
+    assert gs.tree_popup is None
+    gs.on_start_pause()
+    seen = set()
+    for _ in range(2):
+        pump(app, lambda: gs.phase == "reveal", 120)
+        state, dec = gs.last_ai
+        assert state is gs.match.state and dec.player == state.to_move
+        assert gs.last_expl is not None and gs.last_expl.reasons
+        assert gs.hud.why_items                           # reasons + ranking are on screen
+        assert gs.view.labels_np is not None              # #1 CHOSEN / #2 ... tags on the board
+        seen.add(gs.last_expl.algorithm)
+        gs.toggle_tree()                                  # SHOW TREE pauses the match
+        assert gs.tree_popup is not None and gs.paused
+        assert gs.tree_popup.mcts == ("MCTS" in dec.algorithm)
+        gs.on_start_pause()                               # P closes the popup and restores the state
+        assert gs.tree_popup is None and not gs.paused
+        pump(app, lambda: gs.phase == "turn_start", 60)
+    assert seen == {"Minimax", "MCTS"}
+    gs.toggle_tree()
+    gs.toggle_pause_menu()                                # Esc also closes the popup
+    assert gs.tree_popup is None and gs.pause_menu is None
+    gs.on_restart()
+    assert gs.last_ai is None and gs.last_expl is None and not gs.hud.why_items
+    app.goto("menu")

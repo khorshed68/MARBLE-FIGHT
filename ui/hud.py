@@ -8,7 +8,6 @@ import math
 from direct.gui.DirectGui import DGG, DirectFrame
 from panda3d.core import TransparencyAttrib
 
-from game.actions import ABILITY_LABELS
 from game.state import ABILITY_KEYS, GameState
 from ui import theme as T
 from ui.geometry import radial_gradient
@@ -22,7 +21,8 @@ class HUD:
     TOP_PANEL_H = 0.20            # player / turn panels
     MARGIN = 0.03
     POWER_TOP = 0.34              # top of the power panel above the bottom edge
-    ANALYSIS_W = 0.74
+    ANALYSIS_W = 0.88
+    ANALYSIS_BOTTOM = -0.44       # leaves room for the 6 control buttons below it
 
     def obstacles(self, power: bool, analysis: bool, buttons: int) -> list[tuple[float, float, float, float]]:
         """Screen rectangles (x0, x1, y0, y1) in normalised coords occupied by HUD panels.
@@ -43,16 +43,18 @@ class HUD:
             r(-a + m, -a + m + self.feed_w, -1.0 + m, -1.0 + m + 0.34),                  # event feed
         ]
         if analysis:
-            rects.append(r(a - m - self.ANALYSIS_W, a - m, -0.36, 0.56))
+            rects.append(r(a - m - self.ANALYSIS_W, a - m, self.ANALYSIS_BOTTOM, 0.56))
         if power:
             rects.append(r(-0.6, 0.6, -1.0 + 0.13, -1.0 + self.POWER_TOP))
         if buttons:
             rects.append(r(a - 0.59, a - 0.05, -1.0 + 0.034, -1.0 + 0.07 + (buttons - 1) * 0.088 + 0.036))
         return rects
 
-    def __init__(self, app, match, show_analysis: bool = True) -> None:
+    def __init__(self, app, match, show_analysis: bool = True, on_tree=None) -> None:
         self.app = app
         self.match = match
+        self.on_tree = on_tree          # SHOW TREE button in the analysis panel (None = no button)
+        self.why_items: list = []
         self.root = DirectFrame(parent=app.aspect2d, frameColor=(0, 0, 0, 0))
         self.dot_tex = radial_gradient(32, (1, 1, 1, 1), (1, 1, 1, 0), 6.0)
         # panel widths follow the window shape so nothing overlaps on narrow (4:3, 5:4) screens
@@ -113,15 +115,27 @@ class HUD:
 
     def _build_analysis(self) -> None:
         w = self.ANALYSIS_W
-        fr = T.panel(self.app.a2dRightCenter, (-w, 0, -0.36, 0.56), (-self.MARGIN, 0, 0.0))
-        T.text(fr, "AI ANALYSIS", (-w + 0.03, 0.51), 0.037, T.EDGE, kind="title")
-        T.text(fr, "History-Based Adaptive AI + Fuzzy Risk", (-w + 0.03, 0.47), 0.024, T.MUTED)
+        fr = T.panel(self.app.a2dRightCenter, (-w, 0, self.ANALYSIS_BOTTOM, 0.56), (-self.MARGIN, 0, 0.0))
+        T.text(fr, "AI ANALYSIS", (-w + 0.03, 0.505), 0.04, T.EDGE, kind="title")
+        if self.on_tree is not None:
+            self.tree_btn = T.button(fr, "SHOW TREE  (T)", self.on_tree, pos=(-0.2, 0, 0.517), size=(0.17, 0.032),
+                                     text_scale=0.027, accent=T.GOLD)
+        # key for the marble names used below and on the board tags
+        for p, x in ((0, -w + 0.03), (1, -w + 0.33)):
+            ids = [m.mid for m in self.match.state.marbles if m.owner == p]
+            rng = f"M{ids[0]}-M{ids[-1]}" if ids and ids == list(range(ids[0], ids[-1] + 1)) and len(ids) > 1                 else ", ".join(f"M{i}" for i in ids)
+            T.text(fr, f"{rng} = Player {p + 1}", (x, 0.466), 0.026, T.PLAYER_COLORS[p], kind="title")
         self.an_blocks = []
         for p in (0, 1):
-            y = 0.41 - p * 0.4
-            head = T.text(fr, "", (-w + 0.03, y), 0.031, T.PLAYER_COLORS[p], kind="title")
-            body = T.text(fr, "", (-w + 0.03, y - 0.042), 0.025, T.TEXT, kind="mono")
+            y = 0.425 - p * 0.118
+            head = T.text(fr, "", (-w + 0.03, y), 0.03, T.PLAYER_COLORS[p], kind="title")
+            body = T.text(fr, "", (-w + 0.03, y - 0.038), 0.026, T.TEXT)
             self.an_blocks.append((head, body))
+        DirectFrame(parent=fr, frameColor=(T.EDGE[0], T.EDGE[1], T.EDGE[2], 0.45),
+                    frameSize=(-w + 0.02, -0.02, 0.212, 0.217))
+        T.text(fr, "WHY THIS SHOT", (-w + 0.03, 0.17), 0.036, T.GOLD, kind="title")
+        self.why_head = T.text(fr, "the reasons appear after the first AI decision", (-w + 0.03, 0.122), 0.031,
+                               T.MUTED, wordwrap=27)
         self.an_frame = fr
 
     def _build_power(self) -> None:
@@ -172,25 +186,65 @@ class HUD:
         s = decision.stats
         a = decision.action
         deg = math.degrees(a.angle) % 360
-        lines = [f"marble #{a.marble_id}  dir {deg:5.1f}°  power {a.power:.2f}",
-                 f"ability   {ABILITY_LABELS.get(a.ability, a.ability)}"]
-        if decision.fallback:
-            lines.append("FALLBACK shot (budget/timeout)")
+        ab = {"none": "Normal", "precision": "Precision", "power": "Power", "spin_left": "Spin L",
+              "spin_right": "Spin R"}.get(a.ability, a.ability)
+        lines = [f"M{a.marble_id}  dir {deg:3.0f}°  power {a.power:.2f}  {ab}" + ("  FALLBACK" if decision.fallback else "")]
+        tm = T.fmt(s.get("decision_time"), 2, " s")
         if "nodes_visited" in s:
-            lines += [f"depth {T.fmt(s.get('depth_reached'))}/{T.fmt(s.get('max_depth'))}   "
-                      f"nodes {T.fmt(s.get('nodes_visited'))}",
-                      f"a-b prunes {T.fmt(s.get('branches_pruned'))}  cutoffs {T.fmt(s.get('cutoffs'))}",
-                      f"eval {T.fmt(s.get('evaluation'), 1)}   sims {T.fmt(s.get('simulations'))}"]
+            lines.append(f"depth {T.fmt(s.get('depth_reached'))}  |  nodes {T.fmt(s.get('nodes_visited'))}  |  "
+                         f"eval {T.fmt(s.get('evaluation'), 1)}  |  {tm}")
         elif "iterations" in s:
-            lines += [f"iterations {T.fmt(s.get('iterations'))}  sims {T.fmt(s.get('simulations'))}",
-                      f"visits {T.fmt(s.get('selected_visits'))}  reward {T.fmt(s.get('selected_reward'), 3)}",
-                      f"rollout depth {T.fmt(s.get('avg_rollout_depth'), 2)}  tree {T.fmt(s.get('max_tree_depth'))}"]
-        lines.append(f"fuzzy risk {T.fmt(s.get('fuzzy_risk'), 3)}   time {T.fmt(s.get('decision_time'), 2, 's')}")
-        prof = s.get("opponent_profile")
-        if prof and prof.get("shots_observed"):
-            lines.append(f"opp model: aggr {prof['aggression']:.2f} def x{prof['defense_mult']:.2f}")
+            lines.append(f"iterations {T.fmt(s.get('iterations'))}  |  visits {T.fmt(s.get('selected_visits'))}  |  "
+                         f"reward {T.fmt(s.get('selected_reward'), 2)}  |  {tm}")
         head.setText(f"P{player + 1} | {decision.algorithm}")
-        body.setText("\n".join(lines))
+        body.setText("\n".join(lines[:2]))
+
+    def set_explanation(self, ex) -> None:
+        """WHY THIS SHOT: plain-language reasons and the candidate ranking (ai.explain.Explanation)."""
+        for it in self.why_items:
+            it.destroy()
+        self.why_items = []
+        if ex is None:
+            self.why_head.setText("the reasons appear after the first AI decision")
+            self.why_head["fg"] = T.MUTED
+            return
+        w = self.ANALYSIS_W
+        fr = self.an_frame
+        self.why_head.setText(ex.headline)
+        self.why_head["fg"] = T.PLAYER_COLORS[ex.player]
+        y = 0.122 - 0.04 * self._rows(self.why_head) - 0.008
+        mark = {"good": ("+", T.GOOD), "bad": ("-", T.DANGER), "neutral": ("~", T.WARN)}
+        for r in ex.reasons:
+            if y < -0.2:                      # keep room for the candidates
+                break
+            sym, col = mark.get(r.kind, ("~", T.TEXT))
+            o = T.text(fr, f"{sym} {r.text}", (-w + 0.03, y), 0.03, col, wordwrap=27)
+            self.why_items.append(o)
+            y -= 0.039 * self._rows(o)
+        if ex.search:
+            o = T.text(fr, ex.search, (-w + 0.03, y - 0.004), 0.025, T.MUTED, wordwrap=33)
+            self.why_items.append(o)
+            y -= 0.033 * self._rows(o) + 0.012
+        if ex.ranking:
+            o = T.text(fr, "CANDIDATES  (# = tag on the board)", (-w + 0.03, y - 0.006), 0.029, T.EDGE, kind="title")
+            self.why_items.append(o)
+            y -= 0.048
+            for row in ex.ranking:
+                if y < self.ANALYSIS_BOTTOM + 0.03:
+                    break
+                col = T.GOLD if row.selected else T.TEXT
+                score = row.score + (f"  Q {row.mean:.2f}" if row.mean is not None else "")
+                left = T.text(fr, f"#{row.rank}  {row.label[:27]}", (-w + 0.03, y), 0.028, col)
+                right = T.text(fr, score, (-0.03, y), 0.028, col, "right")
+                self.why_items += [left, right]
+                y -= 0.038
+
+    @staticmethod
+    def _rows(o) -> int:
+        try:
+            return max(1, int(o.textNode.getNumRows()))
+        except Exception:
+            return 1
 
     def set_analysis_visible(self, v: bool) -> None:
         (self.an_frame.show if v else self.an_frame.hide)()

@@ -51,7 +51,7 @@ class Action:
 
     def describe(self) -> str:
         deg = math.degrees(self.angle) % 360.0
-        return f"marble #{self.marble_id} @ {deg:5.1f}° power {self.power:.2f} [{ABILITY_LABELS.get(self.ability, self.ability)}]"
+        return f"marble M{self.marble_id} @ {deg:5.1f}° power {self.power:.2f} [{ABILITY_LABELS.get(self.ability, self.ability)}]"
 
     def to_dict(self) -> dict:
         return {"marble_id": self.marble_id, "angle": self.angle, "power": self.power,
