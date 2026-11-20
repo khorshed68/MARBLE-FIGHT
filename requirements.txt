@@ -1,0 +1,3 @@
+# Marble Fight runtime + test dependencies (Python 3.11 or newer)
+panda3d>=1.10.14
+pytest>=8.0

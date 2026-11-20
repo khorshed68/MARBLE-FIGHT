@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# regenerated automatically at runtime
+assets/generated/
+assets/sounds/
+data/settings.json
+# personal play history (grows with every match); tournament files and reports are kept as evidence
+data/match_history.jsonl
+data/replays/
