@@ -108,6 +108,28 @@ class MarbleVisual:
         shadow.setDepthWrite(False)
         shadow.setPos(0.12, 0.10, 0)
         self.shadow = shadow
+        # identity tag "M<id>" above the marble (does not roll; hidden until a match turns tags on)
+        tn = TextNode(f"tag-{mid}")
+        tn.setText(f"M{mid}")
+        tn.setAlign(TextNode.ACenter)
+        tn.setTextColor(col[0], col[1], col[2], 1)
+        tn.setShadow(0.05, 0.05)
+        tn.setShadowColor(0, 0, 0, 1)
+        tn.setCardColor(0.02, 0.03, 0.07, 0.8)
+        tn.setCardAsMargin(0.18, 0.18, 0.06, 0.02)
+        f = font("title")
+        if f is not None:
+            tn.setFont(f)
+        tag = self.root.attachNewNode(tn)
+        tag.setScale(0.5)
+        tag.setPos(0, 0, radius * 2 + 0.35)
+        tag.setBillboardPointEye()
+        tag.setDepthTest(False)
+        tag.setDepthWrite(False)
+        tag.setBin("fixed", 55)
+        tag.setLightOff()
+        tag.hide()
+        self.tag = tag
         # trail ghosts
         self.trail = []
         for k in range(6 if trails else 0):
@@ -172,6 +194,7 @@ class ArenaView:
         self.pal = arena.palette
         self.shared = {"shadow_tex": G.radial_gradient(64, (0, 0, 0, 0.8), (0, 0, 0, 0), 1.3)}
         self.marbles: dict[int, MarbleVisual] = {}
+        self.show_tags = False
         self.effects: list[dict] = []
         self.paths_np: NodePath | None = None
         self.aim_np: NodePath | None = None
@@ -359,6 +382,7 @@ class ArenaView:
                 self.marbles[m.mid] = MarbleVisual(self.root, m.mid, m.owner, self.r, counts[m.owner], self.shared,
                                                    self.detail, self.trails)
                 counts[m.owner] += 1
+            self.set_tags_visible(self.show_tags)
         for m in state.marbles:
             mv = self.marbles[m.mid]
             if mv.falling:
@@ -373,6 +397,12 @@ class ArenaView:
                 mv.root.hide()
             mv.update_trail(0.0)
         self.set_clock(state.clock)
+
+    def set_tags_visible(self, visible: bool) -> None:
+        """Show the "M<id>" identity tag above every marble still in play."""
+        self.show_tags = visible
+        for mv in self.marbles.values():
+            (mv.tag.show if visible and not mv.falling else mv.tag.hide)()
 
     def reset_marbles(self) -> None:
         for mv in self.marbles.values():
@@ -432,6 +462,7 @@ class ArenaView:
         mv.falling = {"t": 0.0, "v": [vx, vy, 0.0]}
         mv.ring.hide()
         mv.shadow.hide()
+        mv.tag.hide()
         for g in mv.trail:
             g.hide()
         col = PLAYER_COLORS[mv.owner]
@@ -538,8 +569,10 @@ class ArenaView:
             self.aim_np.removeNode()
             self.aim_np = None
 
-    def show_paths(self, paths: list[tuple[list[tuple[float, float]], tuple, str]]) -> None:
-        """paths: (points, rgba, style) with style in {"solid", "thin", "dashed"}."""
+    def show_paths(self, paths: list[tuple[list[tuple[float, float]], tuple, str]],
+                   labels: list[tuple[float, float, str, tuple]] | None = None) -> None:
+        """paths: (points, rgba, style) with style in {"solid", "thin", "dashed"}.
+        labels: optional (x, y, text, rgba) tags drawn above the floor, always facing the camera."""
         self.clear_paths()
         root = self.root.attachNewNode("paths")
         for pts, col, style in paths:
@@ -557,11 +590,37 @@ class ArenaView:
             end.setPos(pts[-1][0], pts[-1][1], 0)
         _glow(root, additive=False)
         self.paths_np = root
+        if labels:
+            lab_root = self.root.attachNewNode("path-labels")
+            f = font("title")
+            for i, (x, y, txt, col) in enumerate(labels):
+                tn = TextNode("tag")
+                tn.setText(txt)
+                tn.setAlign(TextNode.ACenter)
+                tn.setTextColor(*col)
+                tn.setShadow(0.06, 0.06)
+                tn.setShadowColor(0, 0, 0, 0.9)
+                tn.setCardColor(0.02, 0.03, 0.07, 0.75)
+                tn.setCardAsMargin(0.15, 0.15, 0.08, 0.05)
+                if f is not None:
+                    tn.setFont(f)
+                np = lab_root.attachNewNode(tn)
+                np.setScale(0.55)
+                np.setPos(x, y, 0.9 + 0.8 * i)          # stacked: tags never cover each other
+                np.setBillboardPointEye()
+                np.setDepthTest(False)
+                np.setDepthWrite(False)
+                np.setBin("fixed", 60)
+                np.setLightOff()
+            self.labels_np = lab_root
 
     def clear_paths(self) -> None:
         if self.paths_np is not None:
             self.paths_np.removeNode()
             self.paths_np = None
+        if getattr(self, "labels_np", None) is not None:
+            self.labels_np.removeNode()
+            self.labels_np = None
 
     def pick(self, x: float, y: float, owner: int | None = None) -> int | None:
         best, bd = None, 1e9
