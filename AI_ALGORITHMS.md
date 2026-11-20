@@ -491,7 +491,7 @@ file only; with no data it shows an empty state. Metrics never measured for an a
 `None` and displayed as `n/a`, never as 0. Results are also broken down by algorithm
 pairing × arena (mirror matches by seat).
 
-## 18. Test strategy (`tests/`, 199 tests, `python -m pytest -q`)
+## 18. Test strategy (`tests/`, 204 tests, `python -m pytest -q`)
 
 * `test_physics.py` — friction, momentum and restitution, energy, glancing hits,
   tunnelling, dead marbles, elimination, bumpers, rotating bumpers, surfaces,
