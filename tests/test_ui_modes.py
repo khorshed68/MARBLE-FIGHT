@@ -305,6 +305,15 @@ def test_algorithm_lab_search_tree_tab_shows_the_real_search(app):
             app.taskMgr.step()
     lab._tree_set("fuzzy", False)
     assert lab._trace().root.children
+    lab._tree_set("fuzzy", True)
+    lab._tree_set("view", "heuristic")                    # heuristic view for Minimax and MCTS
+    app.taskMgr.step()
+    lab._tree_set("algo", "mcts")
+    lab._stepper().run(5)
+    lab._tree_set("view", "heuristic")
+    app.taskMgr.step()
+    lab._tree_set("view", "tree")
+    lab._tree_set("algo", "minimax")
     app.goto("menu")
 
 
@@ -375,6 +384,11 @@ def test_ai_decisions_show_why_tags_and_tree_popup(app):
         gs.toggle_tree()                                  # SHOW TREE pauses the match
         assert gs.tree_popup is not None and gs.paused
         assert gs.tree_popup.mcts == ("MCTS" in dec.algorithm)
+        gs.tree_popup.toggle_view()                       # HEURISTIC view of the same decision
+        assert gs.tree_popup.view == "heuristic"
+        app.taskMgr.step()
+        gs.tree_popup.toggle_view()
+        assert gs.tree_popup.view == "tree"
         gs.on_start_pause()                               # P closes the popup and restores the state
         assert gs.tree_popup is None and not gs.paused
         pump(app, lambda: gs.phase == "turn_start", 60)

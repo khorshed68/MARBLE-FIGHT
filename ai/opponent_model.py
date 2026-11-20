@@ -144,6 +144,7 @@ class OpponentModel:
             "repeated_pattern": self.repeated_pattern(),
             "defense_mult": b.defense_mult,
             "threat_mult": b.threat_mult,
+            "protect": {str(k): v for k, v in b.protect.items()},
         }
 
     # ------------------------------------------------------------------ transfer (worker processes)

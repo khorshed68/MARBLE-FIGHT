@@ -190,3 +190,106 @@ def explanation_dict(ex: Explanation) -> dict[str, Any]:
             "reasons": [{"kind": r.kind, "text": r.text} for r in ex.reasons],
             "ranking": [{"rank": r.rank, "label": r.label, "score": r.score, "risk": r.risk, "selected": r.selected}
                         for r in ex.ranking]}
+
+
+# ----------------------------------------------------------------------------- heuristic breakdown
+INPUT_FORMULA = {
+    "edge": "R - |shooter start|",
+    "power": "power x 1.35 if Power shot",
+    "align": "cos(shot direction, outward)",
+    "stop": "R - |shooter stop| (0 if out)",
+    "threat": "best enemy knock-out line, 0..1",
+    "friction": "surface friction multiplier",
+}
+
+
+@dataclass
+class HeuristicReport:
+    """The numbers behind one shot: evaluation terms after it, its fuzzy risk and the resulting values."""
+    player: int
+    action: Action
+    terms: list[tuple[str, str, str, float]]  # (feature, general formula, formula with numbers, contribution)
+    static_value: float                       # sum of the terms (evaluate() after the shot)
+    risk: float | None                        # fuzzy risk of the shot (None when fuzzy is off)
+    fuzzy_weight: float
+    edge: float                               # -fuzzy_weight * risk (0 when the shot wins or fuzzy is off)
+    one_ply: float                            # static_value + edge = what a depth-1 search scores
+    reward: float                             # MCTS reward of that value: 1 / (1 + exp(-v / scale))
+    reward_scale: float
+    inputs: list[tuple[str, float, dict[str, float]]] = field(default_factory=list)
+    fired: list[tuple[str, float]] = field(default_factory=list)
+    rule_calcs: list[tuple[str, str, float, str]] = field(default_factory=list)  # (rule, min/max formula, w, out)
+    centroid: tuple[float, float] = (0.0, 0.0)   # (sum u*mu(u), sum mu(u)) of the aggregated output
+    risk_waived: bool = False                     # a winning shot is never penalised
+    bias_note: str = ""
+
+
+def bias_from_stats(stats: dict | None):
+    """Rebuild the opponent-model bias that the agent used, from the decision statistics."""
+    from ai.opponent_model import EvalBias
+    prof = (stats or {}).get("opponent_profile") or {}
+    if not prof:
+        return EvalBias.neutral()
+    protect = {int(k): float(v) for k, v in (prof.get("protect") or {}).items()}
+    return EvalBias(float(prof.get("defense_mult", 1.0)), float(prof.get("threat_mult", 1.0)), protect)
+
+
+def _rule_formula(ante, fz) -> str:
+    """The rule's strength written out with the membership degrees, e.g. 'min(0.54, 1.00)'."""
+    op = ante[0]
+    if op in ("and", "or"):
+        return ("min(" if op == "and" else "max(") + ", ".join(_rule_formula(x, fz) for x in ante[1:]) + ")"
+    if op == "not":
+        return f"(1 - {_rule_formula(ante[1], fz)})"
+    var, name = ante
+    return f"{fz[var][name]:.2f}"
+
+
+def heuristic_report(state: GameState, action: Action, player: int | None = None, arena: Arena | None = None,
+                     cfg: GameConfig = DEFAULT_CONFIG, stats: dict | None = None,
+                     use_fuzzy: bool = True) -> HeuristicReport:
+    """Evaluation terms, fuzzy risk and MCTS reward of ``action`` in ``state``, from the same code the agents use."""
+    import math
+    from ai.evaluation import evaluation_terms
+    from ai.fuzzy_risk import FuzzyRiskEvaluator
+    from config import MCTSConfig, MinimaxConfig
+    arena = arena or get_arena(state.arena_id)
+    p = state.to_move if player is None else player
+    bias = bias_from_stats(stats)
+    res = simulate_turn(state, action, arena, cfg, record=False, validate=False, record_contacts=False)
+    after = res.state
+    terms = evaluation_terms(after, p, arena.radius, cfg.physics.marble_radius, bias=bias)
+    static = sum(t[-1] for t in terms)
+    fw = float(MinimaxConfig().fuzzy_weight)         # the same weight in both agent configs (30)
+    inputs, fired, calcs, risk = [], [], [], None
+    centroid = (0.0, 0.0)
+    edge = 0.0
+    waived = False
+    if use_fuzzy:
+        fz = FuzzyRiskEvaluator()
+        inp = fz.shot_inputs(state, action, after, arena, cfg)
+        r = fz.evaluate(inp, explain=True)
+        risk = r.risk
+        vals = {"edge": inp.edge, "power": inp.power, "align": inp.align, "stop": inp.stop,
+                "threat": inp.threat, "friction": inp.friction}
+        inputs = [(k, vals[k], {n: m for n, m in r.memberships[k].items() if m > 0}) for k in vals]
+        fired = list(r.activations)
+        mem = fz.fuzzify(inp)
+        strengths = fz.evaluate_rules(mem)
+        calcs = [(rule.text, _rule_formula(rule.antecedent, mem), w, rule.consequent)
+                 for rule, w in strengths if w > 0]
+        agg = fz.aggregate(strengths)
+        centroid = (sum(u * m for u, m in zip(fz.universe, agg)), sum(agg))
+        if after.winner is not None and after.winner == p:
+            waived = True
+        else:
+            edge = -fw * risk
+    one = static + edge
+    scale = MCTSConfig().reward_scale
+    reward = 1.0 / (1.0 + math.exp(-max(-50.0, min(50.0, one / scale))))
+    note = ""
+    if bias.defense_mult != 1.0 or bias.threat_mult != 1.0 or bias.protect:
+        note = (f"Opponent model of this match: defense x{bias.defense_mult:g}, threat x{bias.threat_mult:g}"
+                + (", extra danger weight on " + ", ".join(f"M{k}" for k in bias.protect) if bias.protect else ""))
+    return HeuristicReport(p, action, terms, static, risk, fw, edge, one, reward, scale, inputs, fired, calcs,
+                           centroid, waived, note)

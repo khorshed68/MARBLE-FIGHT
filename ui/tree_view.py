@@ -217,6 +217,146 @@ class TreeDrawing:
                        "   brighter / more lines = more visits", ((x0 + x1) / 2, -0.875), 0.021 * ps, T.MUTED,
                "center")
 
+    # ------------------------------------------------------------------ heuristic view
+    def _tail_lines(self, tr=None, st=None, rp=0):
+        """Section 3 of the heuristic view: how the search turns the numbers into its choice.
+
+        Returns (title, [(text, colour), ...]); each value is written as formula, then numbers, then result.
+        """
+        from ai.evaluation import evaluation_terms
+        from game.arena import get_arena
+        if st is not None:                                    # MCTS: UCT of the current choice
+            b = st.best()
+            if b is None:
+                return "3  MCTS: UCT SELECTION", [("Run iterations first.", T.MUTED)]
+            c = st.cfg.exploration
+            npar = b.parent.visits
+            ln = math.log(max(1, npar))
+            explore = c * math.sqrt(ln / b.visits)
+            return "3  MCTS: UCT SELECTION OF THE CURRENT CHOICE", [
+                (f"shot: {self._short_label(b.action)}  (most visited child of the root)", T.GOLD),
+                ("Q = W / N  (mean reward of the player who made the shot)", T.TEXT),
+                (f"  = {b.value_sum:.3f} / {b.visits} = {b.mean:.3f}", T.MUTED),
+                ("UCT = Q + c x sqrt( ln N_parent / N ),   c = 1 / sqrt(2)", T.TEXT),
+                (f"  = {b.mean:.3f} + {c:.4f} x sqrt( ln {npar} / {b.visits} )"
+                 f" = {b.mean:.3f} + {c:.4f} x sqrt( {ln:.3f} / {b.visits} )", T.MUTED),
+                (f"  = {b.mean:.3f} + {explore:.3f} = {st.uct(b):.3f}", T.GOLD),
+                ("Selection goes to the child with the highest UCT; the shot played is the most visited child.",
+                 T.MUTED)]
+        if tr is None or tr.best_child is None:
+            return "", []
+        pv = tr.principal_variation()
+        leaf = tr.nodes[pv[-1]]
+        arena = get_arena(leaf.state.arena_id)
+        terms = evaluation_terms(leaf.state, rp, arena.radius)
+        edges = [tr.nodes[i].edge for i in pv[1:]]
+        names = [self._short_label(tr.nodes[i].action) for i in pv[1:]]
+        e_leaf = sum(x[-1] for x in terms)
+        tot = e_leaf + sum(edges)
+        return "3  MINIMAX: WHERE THE TREE VALUE COMES FROM", [
+            ("best line (gold in the tree): " + "  ->  ".join(names), T.GOLD),
+            ("tree value = E(position at the end of the best line) + SUM risk edges along the line", T.TEXT),
+            ("E = " + " + ".join(f"{x[0]} {x[-1]:+.3f}" for x in terms) + f" = {e_leaf:+.3f}", T.MUTED),
+            ("risk edges = " + " ".join(f"{e:+.3f}" for e in edges) + f" = {sum(edges):+.3f}", T.MUTED),
+            (f"tree value = {e_leaf:+.3f} + ({sum(edges):+.3f}) = {tot:+.3f}   (the ROOT box shows {tr.value:+.3f})",
+             T.GOLD),
+            ("MAX picks the largest child value, MIN the smallest, from the leaves up to the root.", T.MUTED)]
+
+    def _draw_heuristic(self, parent, rep, title_note, tail_title, tail, x0, x1, top, fs, backdrop=False) -> None:
+        """Every number of the decision as formula -> numbers -> result (values from ai/explain.py)."""
+        line = fs + 0.016
+
+        def tx(txt, pos, sc, col, align="left", **kw):
+            # plain ASCII only: the game font has no glyphs for symbols such as × or Σ
+            return T.text(parent, txt.replace(" = ", "  =  "), pos, sc, col, align, **kw)
+        mid = x0 + (x1 - x0) * 0.52
+        right = mid - 0.05
+        if backdrop:                       # the Lab draws over the 3-D scene: give the text a solid panel
+            T.panel(parent, (x0 - 0.04, x1 + 0.04, -0.88, top + 0.06), (0, 0, 0), color=(0.03, 0.04, 0.08, 0.97))
+        T.text(parent, f"{self._short_label(rep.action)}   ({title_note}, seen by Player {rep.player + 1})",
+               ((x0 + x1) / 2, top), fs * 1.15, T.GOLD, "center", "title")
+        y = top - line * 1.6
+
+        def head(txt, x, yy):
+            T.text(parent, txt, (x, yy), fs * 1.12, T.EDGE, kind="title")
+            return yy - line * 1.25
+
+        def wrap(txt, x, yy, col, width, scale=1.0):
+            o = tx(txt, (x, yy), fs * scale, col, wordwrap=width / (fs * scale * 1.1))
+            return yy - line * self._nrows(o)
+
+        # ---- 1 evaluation after the shot ----------------------------------------------------------
+        y = head("1  EVALUATION E AFTER THE SHOT  =  sum of 5 terms", x0, y)
+        for name, gen, num, v in rep.terms:
+            tx(f"{name} = {gen}", (x0, y), fs, T.TEXT)
+            y -= line
+            tx(f"      = {num}", (x0, y), fs, T.MUTED)
+            tx(f"{v:+.3f}", (right, y), fs, T.GOLD, "right")
+            y -= line * 1.15
+        if len(rep.terms) > 1:
+            y = wrap("danger of a marble = ((4 - distance to rim) / 4)^2, 0 when it is more than 4 from the rim; "
+                     "lines = unblocked outward pushes on enemy marbles", x0, y, T.MUTED, right - x0, 0.88)
+        tx("E = " + " ".join(f"{x[-1]:+.3f}" for x in rep.terms), (x0, y), fs, T.TEXT)
+        tx(f"{rep.static_value:+.3f}", (right, y), fs, T.GOLD, "right")
+        y -= line * 1.3
+        if rep.risk is not None:
+            if rep.risk_waived:
+                tx("risk edge = 0   (a winning shot is never penalised)", (x0, y), fs, T.WARN)
+            else:
+                tx(f"risk edge = -w x risk = -{rep.fuzzy_weight:g} x {rep.risk:.3f}", (x0, y), fs,
+                       T.WARN)
+            tx(f"{rep.edge:+.3f}", (right, y), fs, T.WARN, "right")
+            y -= line
+        tx(f"one-ply value V = E + risk edge = {rep.static_value:+.3f} + ({rep.edge:+.3f})", (x0, y),
+               fs, T.GOLD)
+        tx(f"{rep.one_ply:+.3f}", (right, y), fs, T.GOLD, "right")
+        y -= line
+        ez = math.exp(-rep.one_ply / rep.reward_scale)
+        tx(f"MCTS reward = 1 / (1 + e^(-V / {rep.reward_scale:g})) = 1 / (1 + {ez:.3f})", (x0, y), fs,
+               T.TEXT)
+        tx(f"{rep.reward:.3f}", (right, y), fs, T.GOLD, "right")
+        y -= line
+        if rep.bias_note:
+            y = wrap(rep.bias_note, x0, y, T.MUTED, right - x0, 0.88)
+        # ---- 3 how the search uses it -------------------------------------------------------------
+        if tail:
+            y -= line * 0.6
+            y = head(tail_title, x0, y)
+            for txt, col in tail:
+                y = wrap(txt, x0, y, col, right - x0 + 0.02)
+        # ---- 2 fuzzy risk -------------------------------------------------------------------------
+        fx = mid + 0.04
+        y = top - line * 1.6
+        y = head("2  FUZZY RISK OF THE SHOT  (Mamdani, 14 rules)", fx, y)
+        if rep.risk is None:
+            tx("Fuzzy risk is switched off for this player.", (fx, y), fs, T.MUTED)
+            return
+        from ai.explain import INPUT_FORMULA
+        tx("a) inputs measured from the simulated shot  ->  membership degrees", (fx, y), fs, T.TEXT)
+        y -= line * 1.1
+        for name, val, mem in rep.inputs:
+            tx(f"{name} = {INPUT_FORMULA[name]} = {val:.2f}", (fx, y), fs * 0.95, T.TEXT)
+            tx("  ".join(f"{k} {m:.2f}" for k, m in mem.items()) or "none", (x1, y), fs * 0.95, T.GOOD,
+                   "right")
+            y -= line
+        y -= line * 0.4
+        tx("b) rules that fire   (AND = min, OR = max, NOT = 1 - x)", (fx, y), fs, T.TEXT)
+        y -= line * 1.1
+        for text, form, w, out in rep.rule_calcs:
+            y = wrap(text, fx, y, T.WARN, x1 - fx, 0.92)
+            tx(f"      strength = {form} = {w:.2f}   ->  clip '{out}' at {w:.2f}", (fx, y), fs * 0.92,
+                   T.MUTED)
+            y -= line * 1.1
+        y -= line * 0.3
+        num, den = rep.centroid
+        tx("c) aggregate the clipped sets with max, then centroid:", (fx, y), fs, T.TEXT)
+        y -= line
+        tx(f"risk = SUM u x mu(u) / SUM mu(u) = {num:.3f} / {den:.3f} = {rep.risk:.3f}", (fx, y), fs,
+               T.GOLD)
+        y -= line
+        tx(f"cost in the search = {rep.fuzzy_weight:g} x {rep.risk:.3f} = "
+                       f"{rep.fuzzy_weight * rep.risk:.3f}", (fx, y), fs, T.GOLD)
+
     @staticmethod
     def _draw_minimap(parent, state, played, best, cx, cz, half, label_scale=0.022, owner_labels=False):
         """Top view of the position (same coordinates as the physics): rim, obstacles, marbles with
@@ -443,6 +583,7 @@ class TreePopup(TreeDrawing):
             aspect = 16 / 9
         self.root.setScale(min(1.0, max(0.6, (aspect - 0.03) / 1.62)))
         self.body = None
+        self.view = "tree"                 # "tree" or "heuristic"
         if self.mcts:
             self.stepper = MCTSStepper(state, iterations=MCTS_ITERS, candidate_width=4, rollout_depth=1, seed=7,
                                        use_fuzzy=use_fuzzy, game_cfg=app.game_cfg)
@@ -489,11 +630,19 @@ class TreePopup(TreeDrawing):
         d = self.decision
         p = d.player
         algo = "MCTS (UCT)" if self.mcts else "Minimax + Alpha-Beta"
-        T.text(b, "DECISION TREE FOR THIS MOMENT", (0, 0.88), 0.06, T.TEXT, "center", "title")
+        T.text(b, "HEURISTIC CALCULATION FOR THIS MOMENT" if self.view == "heuristic" else
+               "DECISION TREE FOR THIS MOMENT", (0, 0.88), 0.06, T.TEXT, "center", "title")
         T.text(b, f"Turn {self.state.turn + 1}  |  Player {p + 1} ({algo}) to move  |  the match is paused",
                (0, 0.82), 0.03, T.PLAYER_COLORS[p], "center")
         played, mine = d.action, self.tree_choice()
         same = same_shot(played, mine)
+        if self.view == "heuristic":            # full width: the calculation needs the space
+            T.button(b, "SHOW TREE", self.toggle_view, pos=(1.5, 0, 0.88), size=(0.2, 0.04), text_scale=0.028,
+                     accent=T.GOLD)
+            T.button(b, "CLOSE (T / Esc)", self.on_close, pos=(-1.5, 0, 0.88), size=(0.22, 0.04), text_scale=0.028,
+                     accent=T.GOLD)
+            self._draw_heuristic_view(b)
+            return
         X, W = -1.72, 0.9                       # left column: x and width
         y = 0.7
 
@@ -558,10 +707,34 @@ class TreePopup(TreeDrawing):
             ky -= 0.032 if txt else 0.014
         T.button(b, "CLOSE (T / Esc)", self.on_close, pos=(-1.25, 0, -0.86), size=(0.25, 0.04), text_scale=0.03,
                  accent=T.GOLD)
-        if self.mcts:
+        heur = self.view == "heuristic"
+        T.button(b, "SHOW TREE" if heur else "SHOW HEURISTIC", self.toggle_view, pos=(1.5, 0, 0.88),
+                 size=(0.2, 0.04), text_scale=0.028, accent=T.GOLD)
+        if heur:
+            self._draw_heuristic_view(b)
+        elif self.mcts:
             self._draw_mcts(b, self.stepper)
         else:
             self._draw_tree(b, self.trace)
+
+    def toggle_view(self) -> None:
+        self.view = "tree" if self.view == "heuristic" else "heuristic"
+        self._draw()
+
+    def _draw_heuristic_view(self, b) -> None:
+        from ai.explain import heuristic_report
+        d = self.decision
+        try:
+            rep = heuristic_report(self.state, d.action, d.player, cfg=self.app.game_cfg, stats=d.stats,
+                                   use_fuzzy=self.use_fuzzy)
+        except Exception as e:                      # never let the analysis break the match
+            T.text(b, f"Heuristic not available: {e}", (0.5, 0.3), 0.03, T.WARN, "center")
+            return
+        if self.mcts:
+            tt, tail = self._tail_lines(st=self.stepper)
+        else:
+            tt, tail = self._tail_lines(tr=self.trace, rp=d.player)
+        self._draw_heuristic(b, rep, "the shot the match AI played", tt, tail, -1.72, 1.72, 0.72, 0.032)
 
     def destroy(self) -> None:
         self.root.destroy()
