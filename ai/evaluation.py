@@ -124,7 +124,7 @@ def evaluate_features(
     weights: EvalWeights = DEFAULT_WEIGHTS,
     bias: EvalBias | None = None,
 ) -> dict[str, float]:
-    """Non-terminal feature breakdown (used by the analysis overlay)."""
+    """Non-terminal feature breakdown; :func:`evaluation_terms` shows the same numbers with their inputs."""
     w = weights
     b = bias or EvalBias.neutral()
     me, opp = perspective, 1 - perspective
@@ -150,3 +150,61 @@ def evaluate_features(
     abil = w.ability * (sum(state.abilities[me]) - sum(state.abilities[opp]))
     total = material + edge + attack + safety + abil
     return {"material": material, "edge": edge, "attack": attack, "safety": safety, "abilities": abil, "total": total}
+
+
+def evaluation_terms(
+    state: GameState,
+    perspective: int,
+    radius: float = 10.0,
+    marble_r: float = 0.45,
+    weights: EvalWeights = DEFAULT_WEIGHTS,
+    bias: EvalBias | None = None,
+) -> list[tuple[str, str, str, float]]:
+    """(feature, general formula, formula with the numbers, contribution) rows whose sum is ``evaluate``.
+
+    Every row is computed with the same helpers and weights as :func:`evaluate_features`
+    (used by the SHOW HEURISTIC view of the match popup and the Algorithm Lab).
+    """
+    if state.winner is not None:
+        v = evaluate(state, perspective, radius, marble_r, weights, bias)
+        if state.winner == DRAW:
+            return [("terminal", "draw = 0", "0", v)]
+        sign = "" if state.winner == perspective else "-"
+        return [("terminal", "win: +(10000 + 50 x survivors - turn), loss: the negative",
+                 f"{sign}(10000 + 50 x {state.count(state.winner)} - {state.turn})", v)]
+    w = weights
+    b = bias or EvalBias.neutral()
+    me, opp = perspective, 1 - perspective
+    own = [m for m in state.marbles if m.alive and m.owner == me]
+    their = [m for m in state.marbles if m.alive and m.owner == opp]
+    rows: list[tuple[str, str, str, float]] = []
+    rows.append(("material", f"{w.material:g} x (own marbles - enemy marbles)",
+                 f"{w.material:g} x ({len(own)} - {len(their)})", w.material * (len(own) - len(their))))
+    od = sum(_edge_danger(m, radius, w.danger_band) * (1.0 + b.protect.get(m.mid, 0.0)) for m in own)
+    td = sum(_edge_danger(m, radius, w.danger_band) for m in their)
+    rows.append(("edge danger", f"-{w.own_edge:g} x defense x SUM own danger + {w.opp_edge:g} x SUM enemy danger",
+                 f"-{w.own_edge:g} x {b.defense_mult:g} x {od:.3f} + {w.opp_edge:g} x {td:.3f}",
+                 -w.own_edge * b.defense_mult * od + w.opp_edge * td))
+    my = _attack_potential(state, me, radius, marble_r)
+    raw_th = _attack_potential(state, opp, radius, marble_r)
+    th = raw_th * b.threat_mult
+    if state.to_move == me:
+        gen = f"{w.attack_to_move:g} x own lines - {w.attack_waiting:g} x threat x enemy lines   (I shoot next)"
+        num = f"{w.attack_to_move:g} x {my:.3f} - {w.attack_waiting:g} x {b.threat_mult:g} x {raw_th:.3f}"
+        val = w.attack_to_move * my - w.attack_waiting * th
+    else:
+        gen = f"{w.attack_waiting:g} x own lines - {w.attack_to_move:g} x threat x enemy lines   (enemy shoots next)"
+        num = f"{w.attack_waiting:g} x {my:.3f} - {w.attack_to_move:g} x {b.threat_mult:g} x {raw_th:.3f}"
+        val = w.attack_waiting * my - w.attack_to_move * th
+    rows.append(("attack lines", gen, num, val))
+
+    def avg_margin(ms):
+        return sum(radius - math.hypot(m.x, m.y) for m in ms) / len(ms) if ms else 0.0
+
+    mo, mt = avg_margin(own), avg_margin(their)
+    rows.append(("safety margin", f"{w.safety:g} x (own avg distance to rim - enemy avg distance to rim)",
+                 f"{w.safety:g} x ({mo:.3f} - {mt:.3f})", w.safety * (mo - mt)))
+    ao, at = sum(state.abilities[me]), sum(state.abilities[opp])
+    rows.append(("abilities", f"{w.ability:g} x (own charges left - enemy charges left)",
+                 f"{w.ability:g} x ({ao} - {at})", w.ability * (ao - at)))
+    return rows
