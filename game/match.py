@@ -174,16 +174,16 @@ class Match:
     def _log_events(self, before: GameState, action: Action, res: TurnResult, decision: Decision | None) -> None:
         who = PLAYER_NAMES[before.to_move]
         deg = math.degrees(action.angle) % 360
-        txt = f"T{before.turn + 1}: {who} shoots #{action.marble_id} at {deg:.0f}° power {action.power:.2f}"
+        txt = f"T{before.turn + 1}: {who} shoots M{action.marble_id} at {deg:.0f}° power {action.power:.2f}"
         if action.ability != "none":
             txt += f" [{ABILITY_LABELS[action.ability]}]"
         self.events.append(txt)
         for mid in res.eliminated:
             owner = before.marbles[mid].owner
             if owner == before.to_move:
-                self.events.append(f"   {who} knocked out its own marble #{mid}!")
+                self.events.append(f"   {who} knocked out its own marble M{mid}!")
             else:
-                self.events.append(f"   KNOCKOUT! {who} eliminated {PLAYER_NAMES[owner]}'s marble #{mid}")
+                self.events.append(f"   KNOCKOUT! {who} eliminated {PLAYER_NAMES[owner]}'s marble M{mid}")
         if res.truncated:
             self.events.append("   (simulation hit the safety time cap; marbles frozen in place)")
         if decision is not None and decision.fallback:
