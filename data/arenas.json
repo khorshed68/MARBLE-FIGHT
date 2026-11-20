@@ -1,0 +1,217 @@
+{
+  "classic": {
+    "name": "Classic Kancha Court",
+    "theme": "Warm sandy court of the traditional Bangladeshi marble game (sand: x1.4 rolling friction)",
+    "radius": 10.0,
+    "base_friction": 1.4,
+    "zones": [],
+    "bumpers": [],
+    "rotating_bumpers": [],
+    "magnets": [],
+    "palette": {
+      "floor": [
+        0.62,
+        0.45,
+        0.3
+      ],
+      "floor_alt": [
+        0.55,
+        0.39,
+        0.25
+      ],
+      "ring": [
+        1.0,
+        0.85,
+        0.55
+      ],
+      "rim": [
+        0.35,
+        0.22,
+        0.12
+      ],
+      "background": [
+        0.05,
+        0.06,
+        0.11
+      ],
+      "accent": [
+        1.0,
+        0.72,
+        0.35
+      ]
+    }
+  },
+  "neon": {
+    "name": "Neon Crystal Arena",
+    "theme": "Futuristic esports floor with bumpers and friction pads",
+    "radius": 10.0,
+    "base_friction": 0.9,
+    "zones": [
+      {
+        "kind": "sticky",
+        "x": 0.0,
+        "y": 0.0,
+        "r": 1.7,
+        "friction": 2.2,
+        "label": "Grip Core"
+      },
+      {
+        "kind": "glide",
+        "x": 6.6,
+        "y": 0.0,
+        "r": 1.8,
+        "friction": 0.4,
+        "label": "Glide Pad"
+      },
+      {
+        "kind": "glide",
+        "x": -6.6,
+        "y": 0.0,
+        "r": 1.8,
+        "friction": 0.4,
+        "label": "Glide Pad"
+      }
+    ],
+    "bumpers": [
+      {
+        "x": 4.6,
+        "y": 4.6,
+        "r": 0.65
+      },
+      {
+        "x": -4.6,
+        "y": 4.6,
+        "r": 0.65
+      },
+      {
+        "x": 4.6,
+        "y": -4.6,
+        "r": 0.65
+      },
+      {
+        "x": -4.6,
+        "y": -4.6,
+        "r": 0.65
+      }
+    ],
+    "rotating_bumpers": [],
+    "magnets": [],
+    "palette": {
+      "floor": [
+        0.07,
+        0.08,
+        0.13
+      ],
+      "floor_alt": [
+        0.1,
+        0.12,
+        0.19
+      ],
+      "ring": [
+        0.2,
+        0.9,
+        1.0
+      ],
+      "rim": [
+        0.12,
+        0.14,
+        0.22
+      ],
+      "background": [
+        0.02,
+        0.02,
+        0.06
+      ],
+      "accent": [
+        1.0,
+        0.55,
+        0.15
+      ]
+    }
+  },
+  "magnetic": {
+    "name": "Magnetic Hazard Arena",
+    "theme": "Rotating bumpers, magnetic vortices and slip hazards",
+    "radius": 10.0,
+    "base_friction": 1.0,
+    "zones": [
+      {
+        "kind": "slip",
+        "x": 7.0,
+        "y": -3.8,
+        "r": 1.6,
+        "friction": 0.35,
+        "label": "Slip Hazard"
+      },
+      {
+        "kind": "slip",
+        "x": -7.0,
+        "y": 3.8,
+        "r": 1.6,
+        "friction": 0.35,
+        "label": "Slip Hazard"
+      }
+    ],
+    "bumpers": [],
+    "rotating_bumpers": [
+      {
+        "orbit": 3.8,
+        "phase": 0.0,
+        "omega": 0.6,
+        "r": 0.7
+      },
+      {
+        "orbit": 3.8,
+        "phase": 3.141592653589793,
+        "omega": 0.6,
+        "r": 0.7
+      }
+    ],
+    "magnets": [
+      {
+        "x": 5.8,
+        "y": 3.0,
+        "r": 2.0,
+        "strength": 3.0
+      },
+      {
+        "x": -5.8,
+        "y": -3.0,
+        "r": 2.0,
+        "strength": 3.0
+      }
+    ],
+    "palette": {
+      "floor": [
+        0.1,
+        0.06,
+        0.14
+      ],
+      "floor_alt": [
+        0.15,
+        0.08,
+        0.2
+      ],
+      "ring": [
+        0.85,
+        0.3,
+        1.0
+      ],
+      "rim": [
+        0.16,
+        0.1,
+        0.22
+      ],
+      "background": [
+        0.03,
+        0.01,
+        0.06
+      ],
+      "accent": [
+        1.0,
+        0.25,
+        0.65
+      ]
+    }
+  }
+}
