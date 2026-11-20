@@ -176,7 +176,7 @@ def action_label(a: Action | None) -> str:
         what = "retreat"
     else:
         what = f"{math.degrees(a.angle) % 360:.0f} deg"
-    ab = "" if a.ability == "none" else f" | {SHORT_ABILITY.get(a.ability, a.ability)}"
+    ab = f" | {SHORT_ABILITY.get(a.ability, a.ability)}" if a.ability != "none" else " | Normal"
     return f"M{a.marble_id} {what}{ab} {a.power * 100:.0f}%"
 
 
