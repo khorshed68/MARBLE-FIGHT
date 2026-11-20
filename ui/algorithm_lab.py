@@ -49,7 +49,7 @@ class AlgorithmLab(TreeDrawing, Screen):
             x = (i - (len(TABS) - 1) / 2) * 0.37
             self.tab_btns[key] = T.button(self.root, lab, self.show, extra_args=[key], pos=(x, 0, 0.74),
                                           size=(0.178, 0.035), text_scale=0.026)
-        self.tree_opts = {"algo": "minimax", "scene": "trap", "turn": 0, "depth": 2, "fuzzy": True}
+        self.tree_opts = {"algo": "minimax", "scene": "trap", "turn": 0, "depth": 2, "fuzzy": True, "view": "tree"}
         self._recent_matches = None
         self._trace_cache: dict = {}
         self._mcts_cache: dict = {}
@@ -458,10 +458,27 @@ class AlgorithmLab(TreeDrawing, Screen):
         for i, (txt, col) in enumerate(lines):
             T.text(parent, txt, (-1.5, y0 - i * 0.046), 0.025, col)
         T.text(parent, note, (-1.5, y0 - len(lines) * 0.046 - 0.01), 0.022, T.MUTED, wordwrap=31)
+        heur = o.get("view") == "heuristic"
+        T.button(parent, "SHOW TREE" if heur else "SHOW HEURISTIC",
+                 lambda: self._tree_set("view", "tree" if heur else "heuristic"), pos=(1.38, 0, 0.66),
+                 size=(0.17, 0.034), text_scale=0.024, accent=T.GOLD)
+        if heur:
+            self._draw_lab_heuristic(parent, state, best, st if mcts else None, tr)
+            return
         if mcts:
             self._draw_mcts(parent, st)
             return
         self._draw_tree(parent, tr)
+
+    def _draw_lab_heuristic(self, parent, state, best, st, tr) -> None:
+        from ai.explain import heuristic_report
+        if best is None:
+            T.text(parent, "No shot explored yet: press SHOW TREE, then NEXT ITERATION or RUN ALL.",
+                   (0.4, 0.3), 0.028, T.WARN, "center")
+            return
+        rep = heuristic_report(state, best, state.to_move, cfg=self.app.game_cfg, use_fuzzy=self.tree_opts["fuzzy"])
+        tt, tail = self._tail_lines(st=st) if st is not None else self._tail_lines(tr=tr, rp=tr.root_player)
+        self._draw_heuristic(parent, rep, "this tree's choice", tt, tail, -0.72, 1.62, 0.35, 0.024, backdrop=True)
 
     def _tab_concepts(self, parent) -> None:
         txt = [
